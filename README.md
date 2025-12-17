@@ -185,6 +185,12 @@ Run tests with:
 python manage.py test
 ```
 
+Coverage wird mit coverage.py gemessen; optional anzeigen mit:
+```bash
+coverage run manage.py test
+coverage html  # Report unter htmlcov/index.html
+```
+
 ## Admin Panel
 
 Access the Django admin panel at `http://127.0.0.1:8000/admin/` with superuser credentials.
