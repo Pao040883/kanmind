@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 
 # 3. Local
 from auth_app.api.permissions import IsAuthenticatedUser
+from auth_app.api.utils import authenticate_and_get_token, create_token_response, get_user_and_profile
 from auth_app.api.serializers import (
     UserCheckSerializer,
     UserLoginSerializer,
@@ -73,15 +74,8 @@ class RegistrationView(APIView):
             user = serializer.save()
             token, _ = Token.objects.get_or_create(user=user)
             profile = UserProfile.objects.get(user=user)
-            return Response(
-                {
-                    "token": token.key,
-                    "user_id": user.id,
-                    "email": user.email,
-                    "fullname": profile.fullname,
-                },
-                status=status.HTTP_201_CREATED,
-            )
+            response_data = create_token_response(token, user, profile)
+            return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -131,28 +125,19 @@ class LoginView(APIView):
 
     def post(self, request):
         serializer = UserLoginSerializer(data=request.data)
-        if serializer.is_valid():
-            user = authenticate(
-                username=serializer.validated_data["email"],
-                password=serializer.validated_data["password"],
-            )
-            if user:
-                token, _ = Token.objects.get_or_create(user=user)
-                profile = UserProfile.objects.get(user=user)
-                return Response(
-                    {
-                        "token": token.key,
-                        "user_id": user.id,
-                        "email": user.email,
-                        "fullname": profile.fullname,
-                    },
-                    status=status.HTTP_200_OK,
-                )
-            return Response(
-                {"error": "Invalid credentials"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        token, profile, error = authenticate_and_get_token(
+            serializer.validated_data["email"],
+            serializer.validated_data["password"]
+        )
+        if error:
+            return error
+        
+        user = profile.user
+        response_data = create_token_response(token, user, profile)
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class EmailCheckView(APIView):
@@ -198,14 +183,10 @@ class EmailCheckView(APIView):
                 {"error": "Email parameter required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        try:
-            user = User.objects.get(email=email)
-            profile = UserProfile.objects.get(user=user)
-            serializer = UserProfileSerializer(profile)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Email not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        
+        user, profile, error = get_user_and_profile(email)
+        if error:
+            return error
+        
+        serializer = UserProfileSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)

@@ -25,6 +25,15 @@ from kanban_app.api.serializers import (
     CommentSerializer,
     TaskSerializer,
 )
+from kanban_app.api.utils import (
+    check_board_permission,
+    get_board_or_error,
+    process_task_creation,
+    update_task_assignees,
+    update_task_fields,
+    validate_board_membership,
+    validate_serializer_and_respond,
+)
 from kanban_app.models import Board, Comment, Task
 
 
@@ -307,126 +316,48 @@ class TaskViewSet(ModelViewSet):
     def create(self, request, *args, **kwargs):
         """POST /api/tasks/ - Create task"""
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            board_id = request.data.get("board")
-            try:
-                board = Board.objects.get(id=board_id)
-                if request.user not in board.members.all() and board.owner != request.user:
-                    return Response(
-                        {"error": "Permission denied"},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-
-                assignee = None
-                if "assignee_id" in request.data and request.data["assignee_id"]:
-                    try:
-                        assignee = User.objects.get(id=request.data["assignee_id"])
-                        if assignee not in board.members.all():
-                            return Response(
-                                {"error": "Assignee not in board members"},
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-                    except User.DoesNotExist:
-                        return Response(
-                            {"error": "Assignee not found"},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                reviewer = None
-                if "reviewer_id" in request.data and request.data["reviewer_id"]:
-                    try:
-                        reviewer = User.objects.get(id=request.data["reviewer_id"])
-                        if reviewer not in board.members.all():
-                            return Response(
-                                {"error": "Reviewer not in board members"},
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-                    except User.DoesNotExist:
-                        return Response(
-                            {"error": "Reviewer not found"},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                task = Task.objects.create(
-                    board=board,
-                    title=serializer.validated_data["title"],
-                    description=serializer.validated_data.get("description"),
-                    status=serializer.validated_data.get("status", "to-do"),
-                    priority=serializer.validated_data.get("priority", "medium"),
-                    assignee=assignee,
-                    reviewer=reviewer,
-                    due_date=serializer.validated_data.get("due_date"),
-                    created_by=request.user,
-                )
-                output_serializer = TaskSerializer(task)
-                return Response(output_serializer.data, status=status.HTTP_201_CREATED)
-            except Board.DoesNotExist:
-                return Response(
-                    {"error": "Board not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        error = validate_serializer_and_respond(serializer)
+        if error:
+            return error
+        
+        board, error = get_board_or_error(request.data.get("board"))
+        if error:
+            return error
+        
+        error = check_board_permission(board, request.user)
+        if error:
+            return error
+        
+        task, error = process_task_creation(board, serializer.validated_data, request.data, request.user)
+        if error:
+            return error
+        
+        output_serializer = TaskSerializer(task)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         """PATCH /api/tasks/{id}/ - Update task"""
         try:
             task = Task.objects.get(id=kwargs.get("pk"))
-            board = task.board
-            if request.user not in board.members.all() and board.owner != request.user:
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-            serializer = self.get_serializer(task, data=request.data, partial=True)
-            if serializer.is_valid():
-                assignee_id = request.data.get("assignee_id")
-                if assignee_id:
-                    try:
-                        assignee = User.objects.get(id=assignee_id)
-                        if assignee not in board.members.all():
-                            return Response(
-                                {"error": "Assignee not in board members"},
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-                        task.assignee = assignee
-                    except User.DoesNotExist:
-                        return Response(
-                            {"error": "Assignee not found"},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                reviewer_id = request.data.get("reviewer_id")
-                if reviewer_id:
-                    try:
-                        reviewer = User.objects.get(id=reviewer_id)
-                        if reviewer not in board.members.all():
-                            return Response(
-                                {"error": "Reviewer not in board members"},
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-                        task.reviewer = reviewer
-                    except User.DoesNotExist:
-                        return Response(
-                            {"error": "Reviewer not found"},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                task.title = serializer.validated_data.get("title", task.title)
-                task.description = serializer.validated_data.get("description", task.description)
-                task.status = serializer.validated_data.get("status", task.status)
-                task.priority = serializer.validated_data.get("priority", task.priority)
-                task.due_date = serializer.validated_data.get("due_date", task.due_date)
-                task.save()
-
-                output_serializer = TaskSerializer(task)
-                return Response(output_serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Task.DoesNotExist:
-            return Response(
-                {"error": "Task not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response({"error": "Task not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        error = check_board_permission(task.board, request.user)
+        if error:
+            return error
+        
+        serializer = self.get_serializer(task, data=request.data, partial=True)
+        error = validate_serializer_and_respond(serializer)
+        if error:
+            return error
+        
+        error = update_task_assignees(task, request.data)
+        if error:
+            return error
+        
+        update_task_fields(task, serializer.validated_data)
+        output_serializer = TaskSerializer(task)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         """DELETE /api/tasks/{id}/ - Delete task"""
