@@ -16,10 +16,10 @@ def validate_board_membership(board, user):
 
 def validate_and_get_assignee(assignee_id, board):
     """
-    Validate and retrieve assignee user.
+    Validate assignee exists and is board member. Return (assignee, error).
     
-    Returns:
-        tuple: (assignee_user, error_response) - error_response is None if valid
+    Allows optional assignment (returns None, None if assignee_id not provided).
+    HTTP 400 if validation fails.
     """
     if not assignee_id:
         return None, None
@@ -41,10 +41,10 @@ def validate_and_get_assignee(assignee_id, board):
 
 def validate_and_get_reviewer(reviewer_id, board):
     """
-    Validate and retrieve reviewer user.
+    Validate reviewer exists and is board member. Return (reviewer, error).
     
-    Returns:
-        tuple: (reviewer_user, error_response) - error_response is None if valid
+    Allows optional assignment (returns None, None if reviewer_id not provided).
+    HTTP 400 if validation fails.
     """
     if not reviewer_id:
         return None, None
@@ -65,7 +65,7 @@ def validate_and_get_reviewer(reviewer_id, board):
 
 
 def create_task_from_data(board, validated_data, assignee, reviewer, created_by):
-    """Create task instance with provided data."""
+    """Create and persist Task instance with provided data and user references."""
     return Task.objects.create(
         board=board,
         title=validated_data["title"],
@@ -80,7 +80,7 @@ def create_task_from_data(board, validated_data, assignee, reviewer, created_by)
 
 
 def update_task_fields(task, validated_data):
-    """Update task fields from validated data."""
+    """Update Task fields from validated data and persist to database."""
     task.title = validated_data.get("title", task.title)
     task.description = validated_data.get("description", task.description)
     task.status = validated_data.get("status", task.status)
@@ -90,12 +90,7 @@ def update_task_fields(task, validated_data):
 
 
 def get_board_or_error(board_id):
-    """
-    Get board by ID or return error response.
-    
-    Returns:
-        tuple: (board, error_response) - error_response is None if found
-    """
+    """Fetch Board by ID or return HTTP 404 error response tuple."""
     try:
         board = Board.objects.get(id=board_id)
         return board, None
@@ -108,10 +103,8 @@ def get_board_or_error(board_id):
 
 def validate_task_assignees(request_data, board):
     """
-    Validate and set assignee and reviewer from request data.
-    
-    Returns:
-        tuple: (assignee, reviewer, error_response) - error is None if all valid
+    Validate both assignee and reviewer from request data. Return (assignee, reviewer, error).
+    \n    HTTP 400 if any validation fails.
     """
     assignee, error = validate_and_get_assignee(request_data.get("assignee_id"), board)
     if error:
@@ -125,7 +118,7 @@ def validate_task_assignees(request_data, board):
 
 
 def update_task_assignee_if_provided(task, request_data, board):
-    """Update task assignee if assignee_id is in request data."""
+    """Update task.assignee if 'assignee_id' in request_data. Return error or None."""
     if "assignee_id" in request_data:
         assignee, error = validate_and_get_assignee(request_data.get("assignee_id"), board)
         if error:
@@ -135,7 +128,7 @@ def update_task_assignee_if_provided(task, request_data, board):
 
 
 def update_task_reviewer_if_provided(task, request_data, board):
-    """Update task reviewer if reviewer_id is in request data."""
+    """Update task.reviewer if 'reviewer_id' in request_data. Return error or None."""
     if "reviewer_id" in request_data:
         reviewer, error = validate_and_get_reviewer(request_data.get("reviewer_id"), board)
         if error:
@@ -145,31 +138,25 @@ def update_task_reviewer_if_provided(task, request_data, board):
 
 
 def validate_serializer_and_respond(serializer):
-    """
-    Validate serializer and return error response if invalid.
-    
-    Returns:
-        Response or None - Returns error response if invalid, None if valid
-    """
+    """Return HTTP 400 response if serializer invalid, else None."""
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     return None
 
 
 def check_board_permission(board, user):
-    """
-    Check board membership and return error if denied.
-    
-    Returns:
-        Response or None - Returns error response if denied, None if allowed
-    """
+    """Return HTTP 403 response if user lacks board access, else None."""
     if not validate_board_membership(board, user):
         return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
     return None
 
 
 def process_task_creation(board, validated_data, request_data, user):
-    """Process task creation with assignee/reviewer validation."""
+    """
+    Validate and create Task with assignee/reviewer. Return (task, error).
+    
+    Encapsulates full task creation logic for concise view methods.
+    """
     assignee, reviewer, error = validate_task_assignees(request_data, board)
     if error:
         return None, error
@@ -179,7 +166,11 @@ def process_task_creation(board, validated_data, request_data, user):
 
 
 def update_task_assignees(task, request_data):
-    """Update task assignee and reviewer if provided in request."""
+    """
+    Update task.assignee and task.reviewer if provided. Return error or None.
+    
+    Does NOT save task - caller must save. Short-circuits on first error.
+    """
     error = update_task_assignee_if_provided(task, request_data, task.board)
     if error:
         return error
