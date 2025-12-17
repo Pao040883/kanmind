@@ -505,3 +505,205 @@ class CommentTest(TestCase):
         data = {"content": "Comment"}
         response = self.client.post("/api/tasks/999/comments/", data)
         self.assertEqual(response.status_code, 404)
+
+class TaskAssigneeReviewerTest(TestCase):
+    """Test task assignee and reviewer validation."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user1 = User.objects.create_user(
+            username="user1@example.com",
+            email="user1@example.com",
+            password="testpass123",
+        )
+        self.user2 = User.objects.create_user(
+            username="user2@example.com",
+            email="user2@example.com",
+            password="testpass123",
+        )
+        self.user3 = User.objects.create_user(
+            username="user3@example.com",
+            email="user3@example.com",
+            password="testpass123",
+        )
+        UserProfile.objects.create(user=self.user1, fullname="User One")
+        UserProfile.objects.create(user=self.user2, fullname="User Two")
+        UserProfile.objects.create(user=self.user3, fullname="User Three")
+        self.token1 = Token.objects.create(user=self.user1)
+
+        self.board = Board.objects.create(title="Test Board", owner=self.user1)
+        self.board.members.add(self.user1, self.user2)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token1.key}")
+
+    def test_create_task_assignee_not_member(self):
+        """Test creating task with non-member assignee."""
+        data = {
+            "board": self.board.id,
+            "title": "Task",
+            "assignee_id": self.user3.id,
+        }
+        response = self.client.post("/api/tasks/", data)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not in board members", str(response.data))
+
+    def test_create_task_reviewer_not_member(self):
+        """Test creating task with non-member reviewer."""
+        data = {
+            "board": self.board.id,
+            "title": "Task",
+            "reviewer_id": self.user3.id,
+        }
+        response = self.client.post("/api/tasks/", data)
+        self.assertEqual(response.status_code, 400)
+
+    def test_create_task_both_assignee_reviewer(self):
+        """Test creating task with both assignee and reviewer."""
+        data = {
+            "board": self.board.id,
+            "title": "Task",
+            "description": "Test",
+            "assignee_id": self.user1.id,
+            "reviewer_id": self.user2.id,
+        }
+        response = self.client.post("/api/tasks/", data)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["assignee"]["id"], self.user1.id)
+        self.assertEqual(response.data["reviewer"]["id"], self.user2.id)
+
+    def test_update_task_assignee_invalid_id(self):
+        """Test updating task with invalid assignee ID."""
+        task = Task.objects.create(
+            board=self.board,
+            title="Task",
+            created_by=self.user1,
+        )
+        data = {"assignee_id": 999}
+        response = self.client.patch(f"/api/tasks/{task.id}/", data)
+        self.assertEqual(response.status_code, 400)
+
+    def test_update_task_reviewer_invalid_id(self):
+        """Test updating task with invalid reviewer ID."""
+        task = Task.objects.create(
+            board=self.board,
+            title="Task",
+            created_by=self.user1,
+        )
+        data = {"reviewer_id": 999}
+        response = self.client.patch(f"/api/tasks/{task.id}/", data)
+        self.assertEqual(response.status_code, 400)
+
+
+class TaskPermissionTest(TestCase):
+    """Test task permissions and access control."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user1 = User.objects.create_user(
+            username="user1@example.com",
+            email="user1@example.com",
+            password="testpass123",
+        )
+        self.user2 = User.objects.create_user(
+            username="user2@example.com",
+            email="user2@example.com",
+            password="testpass123",
+        )
+        UserProfile.objects.create(user=self.user1, fullname="User One")
+        UserProfile.objects.create(user=self.user2, fullname="User Two")
+        self.token1 = Token.objects.create(user=self.user1)
+        self.token2 = Token.objects.create(user=self.user2)
+
+        self.board = Board.objects.create(title="Test Board", owner=self.user1)
+        self.board.members.add(self.user1)
+
+        self.task = Task.objects.create(
+            board=self.board,
+            title="Task",
+            created_by=self.user1,
+        )
+
+    def test_update_task_not_member(self):
+        """Test updating task as non-board member."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token2.key}")
+        data = {"title": "Updated"}
+        response = self.client.patch(f"/api/tasks/{self.task.id}/", data)
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_task_not_creator_not_owner(self):
+        """Test deleting task as non-creator and non-owner."""
+        self.board.members.add(self.user2)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token2.key}")
+        response = self.client.delete(f"/api/tasks/{self.task.id}/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_task_board_not_found(self):
+        """Test creating task with nonexistent board."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token1.key}")
+        data = {
+            "board": 999,
+            "title": "Task",
+        }
+        response = self.client.post("/api/tasks/", data)
+        self.assertEqual(response.status_code, 404)
+
+    def test_update_nonexistent_task(self):
+        """Test updating nonexistent task."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token1.key}")
+        data = {"title": "Updated"}
+        response = self.client.patch("/api/tasks/999/", data)
+        self.assertEqual(response.status_code, 404)
+
+    def test_delete_nonexistent_task(self):
+        """Test deleting nonexistent task."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token1.key}")
+        response = self.client.delete("/api/tasks/999/")
+        self.assertEqual(response.status_code, 404)
+
+
+class CommentPermissionTest(TestCase):
+    """Test comment permissions and access control."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user1 = User.objects.create_user(
+            username="user1@example.com",
+            email="user1@example.com",
+            password="testpass123",
+        )
+        self.user2 = User.objects.create_user(
+            username="user2@example.com",
+            email="user2@example.com",
+            password="testpass123",
+        )
+        UserProfile.objects.create(user=self.user1, fullname="User One")
+        UserProfile.objects.create(user=self.user2, fullname="User Two")
+        self.token1 = Token.objects.create(user=self.user1)
+        self.token2 = Token.objects.create(user=self.user2)
+
+        self.board = Board.objects.create(title="Test Board", owner=self.user1)
+        self.board.members.add(self.user1)
+
+        self.task = Task.objects.create(
+            board=self.board,
+            title="Task",
+            created_by=self.user1,
+        )
+
+    def test_list_comments_not_member(self):
+        """Test listing comments as non-board member."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token2.key}")
+        response = self.client.get(f"/api/tasks/{self.task.id}/comments/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_comment_not_member(self):
+        """Test creating comment as non-board member."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token2.key}")
+        data = {"content": "Comment"}
+        response = self.client.post(f"/api/tasks/{self.task.id}/comments/", data)
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_comment_nonexistent(self):
+        """Test deleting nonexistent comment."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token1.key}")
+        response = self.client.delete(f"/api/tasks/{self.task.id}/comments/999/")
+        self.assertEqual(response.status_code, 404)
