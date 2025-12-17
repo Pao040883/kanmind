@@ -30,8 +30,43 @@ from kanban_app.models import Board, Comment, Task
 
 class BoardViewSet(ModelViewSet):
     """
-    ViewSet for board operations.
-    List, Create, Retrieve, Update, Destroy boards.
+    Kanban board management viewset with full CRUD operations.
+    
+    Provides endpoints for listing, creating, retrieving, updating, and deleting boards.
+    Only shows boards the user owns or is a member of.
+    
+    Endpoints:
+        GET /api/boards/ - List user's boards
+        POST /api/boards/ - Create new board
+        GET /api/boards/{id}/ - Retrieve board details with members and tasks
+        PATCH /api/boards/{id}/ - Update board title and/or members
+        DELETE /api/boards/{id}/ - Delete board (owner only)
+    
+    HTTP Methods Allowed:
+        GET, POST, PATCH, DELETE (PUT not allowed - use PATCH for partial updates)
+    
+    Authentication:
+        Required (IsAuthenticated) - All operations require authentication
+    
+    Serializers:
+        list: BoardListSerializer (summary with counts)
+        create: BoardCreateSerializer (input validation)
+        retrieve: BoardDetailSerializer (full details with members and tasks)
+        update: BoardUpdateSerializer (for PATCH operations)
+    
+    Queryset:
+        Filtered to boards where user is owner OR member
+        Uses distinct() to avoid duplicates
+    
+    Permissions:
+        - list/retrieve: Any board member or owner
+        - create: Any authenticated user
+        - update (PATCH): Any board member or owner
+        - destroy (DELETE): Board owner only
+    
+    Note:
+        Board owner is automatically added as a member.
+        Members can be updated via PATCH with members list.
     """
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete"]
@@ -130,8 +165,42 @@ class BoardViewSet(ModelViewSet):
 
 class TaskListAssignedView(APIView):
     """
+    List all tasks assigned to the current user.
+    
     GET /api/tasks/assigned-to-me/
-    Get all tasks assigned to current user.
+    
+    Returns all tasks where the current user is the assignee.
+    Includes full task details (status, priority, dates, etc.).
+    
+    Success Response (200 OK):
+        [
+            {
+                "id": 1,
+                "board": 5,
+                "title": "Design new dashboard",
+                "description": "...",
+                "status": "in-progress",
+                "priority": "high",
+                "assignee": { "id": 2, "email": "...", "fullname": "..." },
+                "reviewer": { ... },
+                "due_date": "2024-12-20",
+                "comments_count": 3
+            },
+            ...
+        ]
+    
+    Authentication:
+        Required (IsAuthenticated) - Must be logged in
+    
+    Filter:
+        Only returns tasks where assignee == current user
+    
+    Used In:
+        Dashboard view showing user's assigned work items
+        Task management personal list
+    
+    Permissions:
+        IsAuthenticated - Any authenticated user can see their assigned tasks
     """
     permission_classes = [IsAuthenticated]
 
@@ -143,8 +212,42 @@ class TaskListAssignedView(APIView):
 
 class TaskListReviewingView(APIView):
     """
+    List all tasks where the current user is the reviewer.
+    
     GET /api/tasks/reviewing/
-    Get all tasks where user is reviewer.
+    
+    Returns all tasks where the current user is assigned as the reviewer.
+    Useful for QA/review workflows where users need to approve work.
+    
+    Success Response (200 OK):
+        [
+            {
+                "id": 2,
+                "board": 5,
+                "title": "Code review - API endpoints",
+                "description": "...",
+                "status": "review",
+                "priority": "medium",
+                "assignee": { "id": 1, "email": "...", "fullname": "..." },
+                "reviewer": { "id": 2, "email": "...", "fullname": "..." },
+                "due_date": "2024-12-18",
+                "comments_count": 5
+            },
+            ...
+        ]
+    
+    Authentication:
+        Required (IsAuthenticated) - Must be logged in
+    
+    Filter:
+        Only returns tasks where reviewer == current user
+    
+    Used In:
+        QA/review dashboard showing pending reviews
+        Code review queue management
+    
+    Permissions:
+        IsAuthenticated - Any authenticated user can see their review tasks
     """
     permission_classes = [IsAuthenticated]
 
@@ -156,8 +259,43 @@ class TaskListReviewingView(APIView):
 
 class TaskViewSet(ModelViewSet):
     """
-    ViewSet for task operations.
-    Create, Retrieve, Update, Destroy tasks.
+    Task management viewset with create, update, and delete operations.
+    
+    Provides endpoints for creating, updating, and deleting tasks within boards.
+    Tasks can only be created/modified by board members.
+    
+    Endpoints:
+        POST /api/tasks/ - Create new task
+        PATCH /api/tasks/{id}/ - Update task
+        DELETE /api/tasks/{id}/ - Delete task
+    
+    HTTP Methods Allowed:
+        POST, PATCH, DELETE (GET not allowed - use board detail for task retrieval)
+    
+    Authentication:
+        Required (IsAuthenticated) - All operations require authentication
+    
+    Serializer:
+        TaskSerializer - Used for all operations (create, update, read response)
+    
+    Queryset:
+        All tasks (filtering by permission)
+    
+    Permissions:
+        - create: User must be a member of the target board
+        - update (PATCH): User must be a member of the board
+        - destroy (DELETE): Task creator or board owner only
+    
+    Validation:
+        - assignee_id: If provided, assignee must be board member
+        - reviewer_id: If provided, reviewer must be board member
+        - status: Must be one of valid status choices
+        - priority: Must be one of valid priority choices
+    
+    Error Handling:
+        400: Invalid board, assignee, reviewer, or validation errors
+        403: Permission denied (not board member/owner)
+        404: Task/board not found
     """
     permission_classes = [IsAuthenticated]
     serializer_class = TaskSerializer
@@ -310,8 +448,55 @@ class TaskViewSet(ModelViewSet):
 
 class CommentListCreateView(APIView):
     """
+    List and create comments on a specific task.
+    
     GET /api/tasks/{task_id}/comments/
+    List all comments on a task (ordered chronologically).
+    
     POST /api/tasks/{task_id}/comments/
+    Add a new comment to a task.
+    
+    Path Parameters:
+        task_id (int): ID of the task to comment on
+    
+    GET Response (200 OK):
+        [
+            {
+                "id": 1,
+                "created_at": "2024-12-17T10:30:00Z",
+                "author": "John Doe",
+                "content": "Great start on this feature!"
+            },
+            ...
+        ]
+    
+    POST Request Body (JSON):
+        {
+            "content": "I have a question about the implementation..."
+        }
+    
+    POST Success Response (201 Created):
+        {
+            "id": 2,
+            "created_at": "2024-12-17T11:00:00Z",
+            "author": "Jane Smith",
+            "content": "I have a question about the implementation..."
+        }
+    
+    Authentication:
+        Required (IsAuthenticated) - Must be logged in
+    
+    Permissions:
+        - GET: User must be a board member
+        - POST: User must be a board member
+    
+    Error Responses:
+        400: Missing content in POST request
+        403: Permission denied (not board member)
+        404: Task not found
+    
+    Ordering:
+        Comments are ordered chronologically by creation date (earliest first).
     """
     permission_classes = [IsAuthenticated]
 
@@ -364,7 +549,32 @@ class CommentListCreateView(APIView):
 
 class CommentDeleteView(APIView):
     """
+    Delete a specific comment from a task.
+    
     DELETE /api/tasks/{task_id}/comments/{comment_id}/
+    
+    Removes a comment from a task. Only the comment author can delete it.
+    
+    Path Parameters:
+        task_id (int): ID of the task containing the comment
+        comment_id (int): ID of the comment to delete
+    
+    Success Response (204 No Content):
+        (empty response body)
+    
+    Authentication:
+        Required (IsAuthenticated) - Must be logged in
+    
+    Permissions:
+        - DELETE: Only the comment author can delete the comment
+    
+    Error Responses:
+        403: Permission denied (not comment author)
+        404: Task or comment not found
+    
+    Note:
+        Comments are soft-deleted (actually removed from database).
+        Maintains comment thread history through comment IDs and timestamps.
     """
     permission_classes = [IsAuthenticated]
 
