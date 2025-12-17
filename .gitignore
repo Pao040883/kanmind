@@ -54,6 +54,7 @@ db.sqlite3-journal
 .coverage
 .pytest_cache/
 htmlcov/
+test_results.txt
 
 # OS
 .DS_Store
