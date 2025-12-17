@@ -188,7 +188,7 @@ python manage.py test
 Coverage wird mit coverage.py gemessen; optional anzeigen mit:
 ```bash
 coverage run manage.py test
-coverage html  # Report unter htmlcov/index.html
+coverage report
 ```
 
 ## Admin Panel
@@ -202,8 +202,7 @@ Available models:
 - Comments
 
 ## License
-
-See LICENSE file for details.
+This project is for educational purposes.
 
 ## Contributing
 
