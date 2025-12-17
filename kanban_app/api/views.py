@@ -91,86 +91,66 @@ class BoardViewSet(ModelViewSet):
         return BoardDetailSerializer
 
     def get_queryset(self):
-        user = self.request.user
-        return Board.objects.filter(members=user) | Board.objects.filter(owner=user)
+        """Optimize queries based on action"""
+        queryset = Board.objects.select_related('owner')
+        
+        # For list action, filter to user's boards only
+        if self.action == 'list':
+            user = self.request.user
+            queryset = queryset.filter(members=user) | queryset.filter(owner=user)
+            queryset = queryset.prefetch_related('members', 'tasks').distinct()
+        # For retrieve/update/destroy, return all boards and let permissions handle access control
+        elif self.action == 'retrieve':
+            queryset = queryset.prefetch_related(
+                'members__profile',
+                'tasks__assignee__profile',
+                'tasks__reviewer__profile'
+            )
+        
+        return queryset
 
     def list(self, request, *args, **kwargs):
         """GET /api/boards/ - List user's boards"""
-        queryset = self.get_queryset().distinct()
+        queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def create(self, request, *args, **kwargs):
         """POST /api/boards/ - Create new board"""
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            board = Board.objects.create(
-                title=serializer.validated_data["title"],
-                owner=request.user,
-            )
-            members = serializer.validated_data.get("members", [])
-            board.members.set(members)
-            output_serializer = BoardListSerializer(board)
-            return Response(output_serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
+        board = serializer.save(owner=request.user)
+        output_serializer = BoardListSerializer(board)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, *args, **kwargs):
         """GET /api/boards/{id}/ - Get board with tasks"""
-        board_id = kwargs.get("pk")
-        try:
-            board = Board.objects.get(id=board_id)
-            if board.owner != request.user and request.user not in board.members.all():
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            serializer = self.get_serializer(board)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Board.DoesNotExist:
-            return Response(
-                {"error": "Board not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        board = self.get_object()
+        serializer = self.get_serializer(board)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def update(self, request, *args, **kwargs):
         """PATCH /api/boards/{id}/ - Update board members"""
-        board_id = kwargs.get("pk")
-        try:
-            board = Board.objects.get(id=board_id)
-            if board.owner != request.user and request.user not in board.members.all():
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            serializer = self.get_serializer(board, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                output_serializer = BoardUpdateSerializer(board)
-                return Response(output_serializer.data, status=status.HTTP_200_OK)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Board.DoesNotExist:
-            return Response(
-                {"error": "Board not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        board = self.get_object()
+        serializer = self.get_serializer(board, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        output_serializer = BoardUpdateSerializer(board)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         """DELETE /api/boards/{id}/ - Delete board"""
-        board_id = kwargs.get("pk")
-        try:
-            board = Board.objects.get(id=board_id)
-            if board.owner != request.user:
-                return Response(
-                    {"error": "Only owner can delete board"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            board.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Board.DoesNotExist:
-            return Response(
-                {"error": "Board not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        board = self.get_object()
+        board.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsBoardOwner()]
+        elif self.action in ['update', 'partial_update', 'retrieve']:
+            return [IsAuthenticated(), IsBoardMember()]
+        return [IsAuthenticated()]
 
 
 class TaskListAssignedView(APIView):
@@ -312,7 +292,14 @@ class TaskViewSet(ModelViewSet):
     http_method_names = ["post", "patch", "delete"]
 
     def get_queryset(self):
-        return Task.objects.all()
+        """Optimize queries with select_related and prefetch_related"""
+        return Task.objects.select_related(
+            'board',
+            'board__owner',
+            'assignee__profile',
+            'reviewer__profile',
+            'created_by'
+        ).prefetch_related('comments')
 
     def create(self, request, *args, **kwargs):
         """POST /api/tasks/ - Create task"""
@@ -403,50 +390,21 @@ class CommentListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, task_id):
-        try:
-            task = Task.objects.get(id=task_id)
-            board = task.board
-            if request.user not in board.members.all() and board.owner != request.user:
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            comments = task.comments.all().order_by("created_at")
-            serializer = CommentSerializer(comments, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Task.DoesNotExist:
-            return Response(
-                {"error": "Task not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        task = get_object_or_404(Task.objects.select_related('board', 'board__owner').prefetch_related('board__members'), id=task_id)
+        check_board_permission(task.board, request.user)
+        
+        comments = task.comments.select_related('author__profile').order_by("created_at")
+        serializer = CommentSerializer(comments, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, task_id):
-        try:
-            task = Task.objects.get(id=task_id)
-            board = task.board
-            if request.user not in board.members.all() and board.owner != request.user:
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            content = request.data.get("content")
-            if not content:
-                return Response(
-                    {"error": "Content is required"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            comment = Comment.objects.create(
-                task=task,
-                author=request.user,
-                content=content,
-            )
-            serializer = CommentSerializer(comment)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except Task.DoesNotExist:
-            return Response(
-                {"error": "Task not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        task = get_object_or_404(Task.objects.select_related('board', 'board__owner').prefetch_related('board__members'), id=task_id)
+        check_board_permission(task.board, request.user)
+        
+        serializer = CommentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = serializer.save(task=task, author=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class CommentDeleteView(APIView):
@@ -478,21 +436,11 @@ class CommentDeleteView(APIView):
         Comments are soft-deleted (actually removed from database).
         Maintains comment thread history through comment IDs and timestamps.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsCommentAuthor]
 
     def delete(self, request, task_id, comment_id):
-        try:
-            task = Task.objects.get(id=task_id)
-            comment = Comment.objects.get(id=comment_id, task=task)
-            if comment.author != request.user:
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            comment.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except (Task.DoesNotExist, Comment.DoesNotExist):
-            return Response(
-                {"error": "Task or comment not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        task = get_object_or_404(Task, id=task_id)
+        comment = get_object_or_404(Comment.objects.select_related('author'), id=comment_id, task=task)
+        self.check_object_permissions(request, comment)
+        comment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

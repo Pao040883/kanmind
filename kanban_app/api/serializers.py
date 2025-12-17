@@ -387,15 +387,14 @@ class BoardCreateSerializer(serializers.ModelSerializer):
         Board
     
     Create Behavior:
-        Owner is automatically set to the current authenticated user (handled in view).
-        Members are set from the provided list (handled in view after creation).
+        Owner is automatically set to the current authenticated user (passed from view).
+        Members are set from the provided list.
     
     Used In:
         POST /api/boards/ (create a new board)
     
     Note:
-        Does not include owner field - it's automatically set to the requesting user.
-        Does not return data - view converts to BoardListSerializer for response.
+        Does not include owner field - it's automatically set via serializer.save(owner=user).
         Members are optional for initial creation; can be added later.
     """
     members = serializers.PrimaryKeyRelatedField(
@@ -405,3 +404,9 @@ class BoardCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Board
         fields = ["title", "members"]
+    
+    def create(self, validated_data):
+        members = validated_data.pop('members', [])
+        board = Board.objects.create(**validated_data)
+        board.members.set(members)
+        return board
