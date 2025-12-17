@@ -65,28 +65,31 @@ The API will be available at `http://127.0.0.1:8000/`
 
 ### Authentication
 
+**Login und Registrierung**
+
 - `POST /api/registration/` - Register a new user
 - `POST /api/login/` - Login and get authentication token
-- `GET /api/email-check/` - Check if email exists (requires authentication)
 
 ### Boards
+
+**Alles zur Bearbeitung, Erstellung und Abruf von Boards**
 
 - `GET /api/boards/` - List user's boards
 - `POST /api/boards/` - Create a new board
 - `GET /api/boards/{id}/` - Get board details with tasks
 - `PATCH /api/boards/{id}/` - Update board members
 - `DELETE /api/boards/{id}/` - Delete board
+- `GET /api/email-check/` - Check if email exists 
 
 ### Tasks
+
+**Alles zur Bearbeitung, Erstellung und Abruf von Tasks**
 
 - `GET /api/tasks/assigned-to-me/` - Get tasks assigned to current user
 - `GET /api/tasks/reviewing/` - Get tasks where user is reviewer
 - `POST /api/tasks/` - Create a new task
 - `PATCH /api/tasks/{id}/` - Update task details
 - `DELETE /api/tasks/{id}/` - Delete task
-
-### Comments
-
 - `GET /api/tasks/{task_id}/comments/` - Get task comments
 - `POST /api/tasks/{task_id}/comments/` - Create a comment
 - `DELETE /api/tasks/{task_id}/comments/{comment_id}/` - Delete comment
