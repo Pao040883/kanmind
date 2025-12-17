@@ -91,6 +91,22 @@ The API will be available at `http://127.0.0.1:8000/`
 - `POST /api/tasks/{task_id}/comments/` - Create a comment
 - `DELETE /api/tasks/{task_id}/comments/{comment_id}/` - Delete comment
 
+## Utility Functions
+
+Common business logic is extracted into utility modules for reusability and maintainability:
+
+### `auth_app/api/utils.py`
+- `create_token_response()`: Build authentication response with token and user info
+- `get_user_and_profile()`: Fetch user and profile by email with error handling
+- `authenticate_and_get_token()`: Handle user authentication and token creation
+
+### `kanban_app/api/utils.py`
+- **Validation**: `validate_board_membership()`, `validate_and_get_assignee()`, `validate_and_get_reviewer()`
+- **Creation**: `create_task_from_data()` - Persist new task with all fields
+- **Updates**: `update_task_fields()`, `update_task_assignee_if_provided()`, `update_task_reviewer_if_provided()`
+- **Permissions**: `check_board_permission()` - Verify user board access
+- **Orchestration**: `process_task_creation()`, `validate_task_assignees()`, `update_task_assignees()` - Multi-step operations
+
 ## Authentication
 
 The API uses Token Authentication. Include the token in the `Authorization` header:
@@ -118,7 +134,8 @@ backend/
 │   │   ├── serializers.py  # API serializers
 │   │   ├── views.py        # API views
 │   │   ├── urls.py         # URL routing
-│   │   └── permissions.py  # Custom permissions
+│   │   ├── permissions.py  # Custom permissions
+│   │   └── utils.py        # Authentication helpers
 │   ├── models.py           # User profile model
 │   └── admin.py            # Admin configuration
 ├── kanban_app/             # Kanban board application
@@ -126,7 +143,8 @@ backend/
 │   │   ├── serializers.py  # Serializers for boards, tasks, comments
 │   │   ├── views.py        # ViewSets and API views
 │   │   ├── urls.py         # URL routing
-│   │   └── permissions.py  # Board and task permissions
+│   │   ├── permissions.py  # Board and task permissions
+│   │   └── utils.py        # Board, task, and validation helpers
 │   ├── models.py           # Board, Task, Comment models
 │   └── admin.py            # Admin configuration
 ├── manage.py               # Django management script
@@ -146,6 +164,8 @@ This project follows these conventions:
 - **Views**: Use ViewSets for CRUD operations, APIView for custom endpoints
 - **Serializers**: Explicit field declaration, custom validation methods
 - **Permissions**: Role-based access control with clear permission classes
+- **Utility Functions**: Proportional docstrings (1-4 lines for helpers, more for complex logic)
+- **Error Handling**: Tuple returns `(result, error_response)` for consistent error propagation
 
 ## Environment Variables
 
