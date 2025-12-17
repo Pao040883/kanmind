@@ -3,6 +3,7 @@
 # 2. Third-party
 from django.contrib.auth.models import User
 from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 # 3. Local
@@ -23,36 +24,29 @@ def get_user_and_profile(email):
     """
     Fetch user and profile by email.
     
-    Returns (user, profile, error_response). HTTP 404 if not found.
+    Returns (user, profile). Raises NotFound if user doesn't exist.
     """
     try:
         user = User.objects.get(email=email)
         profile = UserProfile.objects.get(user=user)
-        return user, profile, None
+        return user, profile
     except User.DoesNotExist:
-        return None, None, Response(
-            {"error": "Email not found"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
+        raise NotFound("Email not found")
 
 
 def authenticate_and_get_token(email, password):
     """
-    Authenticate user and return (token, profile, error).
+    Authenticate user and return (token, profile).
     
-    HTTP 400 on invalid credentials. Email used as Django auth username.
+    Raises ValidationError on invalid credentials. Email used as Django auth username.
     """
     from django.contrib.auth import authenticate
     from rest_framework.authtoken.models import Token
-    from rest_framework import status
     
     user = authenticate(username=email, password=password)
     if not user:
-        return None, None, Response(
-            {"error": "Invalid credentials"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        raise ValidationError({"error": "Invalid credentials"})
     
     token, _ = Token.objects.get_or_create(user=user)
     profile = UserProfile.objects.get(user=user)
-    return token, profile, None
+    return token, profile

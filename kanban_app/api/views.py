@@ -2,6 +2,7 @@
 
 # 2. Third-party
 from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -32,7 +33,7 @@ from kanban_app.api.utils import (
     update_task_assignees,
     update_task_fields,
     validate_board_membership,
-    validate_serializer_and_respond,
+    validate_serializer,
 )
 from kanban_app.models import Board, Comment, Task
 
@@ -316,65 +317,35 @@ class TaskViewSet(ModelViewSet):
     def create(self, request, *args, **kwargs):
         """POST /api/tasks/ - Create task"""
         serializer = self.get_serializer(data=request.data)
-        error = validate_serializer_and_respond(serializer)
-        if error:
-            return error
+        validate_serializer(serializer)
         
-        board, error = get_board_or_error(request.data.get("board"))
-        if error:
-            return error
+        board = get_board_or_error(request.data.get("board"))
+        check_board_permission(board, request.user)
         
-        error = check_board_permission(board, request.user)
-        if error:
-            return error
-        
-        task, error = process_task_creation(board, serializer.validated_data, request.data, request.user)
-        if error:
-            return error
-        
+        task = process_task_creation(board, serializer.validated_data, request.data, request.user)
         output_serializer = TaskSerializer(task)
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         """PATCH /api/tasks/{id}/ - Update task"""
-        try:
-            task = Task.objects.get(id=kwargs.get("pk"))
-        except Task.DoesNotExist:
-            return Response({"error": "Task not found"}, status=status.HTTP_404_NOT_FOUND)
-        
-        error = check_board_permission(task.board, request.user)
-        if error:
-            return error
+        task = get_object_or_404(Task, id=kwargs.get("pk"))
+        check_board_permission(task.board, request.user)
         
         serializer = self.get_serializer(task, data=request.data, partial=True)
-        error = validate_serializer_and_respond(serializer)
-        if error:
-            return error
+        validate_serializer(serializer)
         
-        error = update_task_assignees(task, request.data)
-        if error:
-            return error
-        
+        update_task_assignees(task, request.data)
         update_task_fields(task, serializer.validated_data)
+        
         output_serializer = TaskSerializer(task)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
-
+    
     def destroy(self, request, *args, **kwargs):
         """DELETE /api/tasks/{id}/ - Delete task"""
-        try:
-            task = Task.objects.get(id=kwargs.get("pk"))
-            if task.created_by != request.user and task.board.owner != request.user:
-                return Response(
-                    {"error": "Permission denied"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            task.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except Task.DoesNotExist:
-            return Response(
-                {"error": "Task not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        task = get_object_or_404(Task, id=kwargs.get("pk"))
+        check_board_permission(task.board, request.user, require_owner_or_creator=task.created_by)
+        task.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CommentListCreateView(APIView):

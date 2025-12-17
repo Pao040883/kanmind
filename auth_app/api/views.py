@@ -125,15 +125,12 @@ class LoginView(APIView):
 
     def post(self, request):
         serializer = UserLoginSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
         
-        token, profile, error = authenticate_and_get_token(
+        token, profile = authenticate_and_get_token(
             serializer.validated_data["email"],
             serializer.validated_data["password"]
         )
-        if error:
-            return error
         
         user = profile.user
         response_data = create_token_response(token, user, profile)
@@ -179,14 +176,9 @@ class EmailCheckView(APIView):
     def get(self, request):
         email = request.query_params.get("email")
         if not email:
-            return Response(
-                {"error": "Email parameter required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"error": "Email parameter required"})
         
-        user, profile, error = get_user_and_profile(email)
-        if error:
-            return error
-        
+        user, profile = get_user_and_profile(email)
         serializer = UserProfileSerializer(profile)
         return Response(serializer.data, status=status.HTTP_200_OK)
