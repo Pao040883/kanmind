@@ -21,6 +21,7 @@ from kanban_app.api.serializers import (
     BoardUpdateSerializer,
     CommentSerializer,
     TaskSerializer,
+    TaskUpdateSerializer,
 )
 from kanban_app.api.utils import (
     check_board_permission,
@@ -81,7 +82,7 @@ class BoardViewSet(ModelViewSet):
             return BoardListSerializer
         elif self.action == "create":
             return BoardCreateSerializer
-        elif self.action == "update":
+        elif self.action in ["update", "partial_update"]:
             return BoardUpdateSerializer
         return BoardDetailSerializer
 
@@ -127,11 +128,10 @@ class BoardViewSet(ModelViewSet):
     def update(self, request, *args, **kwargs):
         """PATCH /api/boards/{id}/ - Update board members"""
         board = self.get_object()
-        serializer = self.get_serializer(board, data=request.data, partial=True)
+        serializer = self.get_serializer(instance=board, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        output_serializer = BoardUpdateSerializer(board)
-        return Response(output_serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         """DELETE /api/boards/{id}/ - Delete board"""
@@ -319,7 +319,7 @@ class TaskViewSet(ModelViewSet):
         update_task_assignees(task, request.data)
         update_task_fields(task, serializer.validated_data)
         
-        output_serializer = TaskSerializer(task)
+        output_serializer = TaskUpdateSerializer(task)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
     
     def destroy(self, request, *args, **kwargs):

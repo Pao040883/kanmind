@@ -149,7 +149,7 @@ class EmailCheckView(APIView):
     
     Success Response (200 OK) - Email found:
         {
-            "user_id": 5,
+            "id": 5,
             "email": "john@example.com",
             "fullname": "John Doe"
         }

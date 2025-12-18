@@ -93,7 +93,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     Extracts email from related User model and ID/fullname from UserProfile.
     
     Fields:
-        user_id (IntegerField): User's ID from Django User model (read-only, sourced from user.id)
+        id (IntegerField): User's ID from Django User model (read-only, sourced from user.id)
         email (EmailField): User's email from Django User model (read-only, sourced from user.email)
         fullname (CharField): User's full name from UserProfile (read-only)
     
@@ -109,11 +109,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
         Sourced fields (email from user.email) use Django's source parameter.
     """
     email = serializers.EmailField(source="user.email", read_only=True)
-    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    id = serializers.IntegerField(source="user.id", read_only=True)
 
     class Meta:
         model = UserProfile
-        fields = ["user_id", "email", "fullname"]
+        fields = ["id", "email", "fullname"]
 
 
 class UserCheckSerializer(serializers.Serializer):

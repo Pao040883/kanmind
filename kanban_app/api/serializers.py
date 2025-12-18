@@ -2,6 +2,7 @@
 
 # 2. Third-party
 from django.contrib.auth.models import User
+from django.db import models
 from rest_framework import serializers
 
 # 3. Local
@@ -134,7 +135,7 @@ class CommentSerializer(serializers.ModelSerializer):
         Comment
     
     Data Sources:
-        - author field uses source="author.userprofile.fullname" to extract the full name
+        - author field uses source="author.profile.fullname" to extract the full name
     
     Used In:
         GET /api/tasks/{id}/comments/ (list comments on a task)
@@ -145,7 +146,7 @@ class CommentSerializer(serializers.ModelSerializer):
         Comments are ordered by created_at (earliest first) in the default ordering.
         The author field is read-only and extracted from the related User/UserProfile.
     """
-    author = serializers.CharField(source="author.userprofile.fullname", read_only=True)
+    author = serializers.CharField(source="author.profile.fullname", read_only=True)
 
     class Meta:
         model = Comment
@@ -161,11 +162,11 @@ class TaskSerializer(serializers.ModelSerializer):
     
     Fields:
         id (IntegerField): Task ID (read-only)
-        board (IntegerField): Board ID (read-only, cannot be changed)
+        board (IntegerField): Board ID (read-only, cannot be changed after creation)
         title (CharField): Task title (required, read-write)
         description (TextField): Task description (optional, read-write)
-        status (CharField): Task status from choices (read-write)
-        priority (CharField): Task priority from choices (read-write)
+        status (CharField): Task status - must be one of: "to-do", "in-progress", "review", "done" (read-write)
+        priority (CharField): Task priority - must be one of: "low", "medium", "high" (read-write)
         assignee (UserSimpleSerializer): Assigned user info (read-only, nested)
         assignee_id (IntegerField): ID of assigned user (write-only, for setting assignee)
         reviewer (UserSimpleSerializer): Reviewer user info (read-only, nested)
@@ -323,27 +324,19 @@ class BoardDetailSerializer(serializers.ModelSerializer):
         fields = ["id", "title", "owner_id", "members", "tasks"]
 
 
-class BoardUpdateSerializer(serializers.ModelSerializer):
+class BoardUpdateSerializer(serializers.Serializer):
     """
     Serializer for updating board information.
     
-    Used when updating board details (title, members). Separates read and write
-    operations for members using different field names.
+    Uses Serializer (not ModelSerializer) to avoid conflicts with ManyToMany field handling.
+    Manually handles all fields to match endpoints.md specification.
     
     Fields:
         id (IntegerField): Board ID (read-only)
         title (CharField): Board title (read-write, can update)
-        owner_data (UserSimpleSerializer): Owner information (read-only, nested)
-        members (PrimaryKeyRelatedField): Member IDs for update (write-only, many=True)
-        members_data (UserSimpleSerializer): Member information (read-only, nested)
-    
-    Model:
-        Board
-    
-    Field Details:
-        members: Takes list of User IDs for writing/updating (write_only=True)
-        members_data: Returns full member details after update (sourced from members, read_only=True)
-        owner_data: Returns owner details (sourced from owner, read_only=True)
+        owner_data (dict): Owner information (read-only, nested)
+        members (list): Member IDs for update (write-only)
+        members_data (list): Member information (read-only, nested)
     
     Used In:
         PATCH /api/boards/{id}/ (update board title and/or members)
@@ -353,24 +346,84 @@ class BoardUpdateSerializer(serializers.ModelSerializer):
         Replaces board.members if provided (uses set() to replace entire membership)
     
     Note:
-        Uses separate field names (members for write, members_data for read) to handle
-        different formats: write receives IDs, read returns full user objects.
+        Not using ModelSerializer to avoid ManyToMany field conflicts.
     """
-    members_data = UserSimpleSerializer(source="members", many=True, read_only=True)
-    owner_data = UserSimpleSerializer(source="owner", read_only=True)
-    members = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), many=True, required=False, write_only=True
+    id = serializers.IntegerField(read_only=True)
+    title = serializers.CharField(required=False, allow_blank=False, max_length=255)
+    owner_data = serializers.SerializerMethodField()
+    members = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        write_only=True
     )
+    members_data = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Board
-        fields = ["id", "title", "owner_data", "members", "members_data"]
+    def get_owner_data(self, obj):
+        return {
+            'id': obj.owner.id,
+            'email': obj.owner.email,
+            'fullname': obj.owner.profile.fullname if hasattr(obj.owner, 'profile') else obj.owner.username
+        }
+    
+    def get_members_data(self, obj):
+        members_list = []
+        for member in obj.members.all():
+            members_list.append({
+                'id': member.id,
+                'email': member.email,
+                'fullname': member.profile.fullname if hasattr(member, 'profile') else member.username
+            })
+        return members_list
+
+    def validate_members(self, value):
+        """
+        Validate that members being removed are not assigned to any tasks.
+        
+        Prevents removing board members who are still assigned as assignee or reviewer
+        on active tasks to maintain data consistency.
+        """
+        if not self.instance:
+            return value
+        
+        # Get current members
+        current_member_ids = set(self.instance.members.values_list('id', flat=True))
+        # Get new members
+        new_member_ids = set(value)
+        # Find members being removed
+        removed_member_ids = current_member_ids - new_member_ids
+        
+        if removed_member_ids:
+            # Check if any removed members are assigned to tasks
+            tasks_with_removed_members = self.instance.tasks.filter(
+                models.Q(assignee_id__in=removed_member_ids) | 
+                models.Q(reviewer_id__in=removed_member_ids)
+            )
+            
+            if tasks_with_removed_members.exists():
+                # Get names of affected users for error message
+                from django.contrib.auth.models import User
+                affected_users = User.objects.filter(id__in=removed_member_ids)
+                user_names = [u.email for u in affected_users]
+                
+                raise serializers.ValidationError(
+                    f"Cannot remove members {', '.join(user_names)} because they are still assigned to tasks. "
+                    "Please reassign or remove their tasks first."
+                )
+        
+        return value
 
     def update(self, instance, validated_data):
-        instance.title = validated_data.get("title", instance.title)
+        # Update title if provided
+        if "title" in validated_data:
+            instance.title = validated_data["title"]
+            instance.save()
+        
+        # Update members if provided
         if "members" in validated_data:
-            instance.members.set(validated_data["members"])
-        instance.save()
+            member_ids = validated_data["members"]
+            users = User.objects.filter(id__in=member_ids)
+            instance.members.set(users)
+        
         return instance
 
 
@@ -412,3 +465,47 @@ class BoardCreateSerializer(serializers.ModelSerializer):
         board = Board.objects.create(**validated_data)
         board.members.set(members)
         return board
+
+
+class TaskUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer specifically for task PATCH responses.
+    
+    According to endpoints.md, PATCH /api/tasks/{id}/ should NOT include board field.
+    This is different from POST /api/tasks/ and GET responses which include board.
+    
+    Fields:
+        id (IntegerField): Task ID (read-only)
+        title (CharField): Task title (read-only in response)
+        description (TextField): Task description (read-only in response)
+        status (CharField): Task status (read-only in response)
+        priority (CharField): Task priority (read-only in response)
+        assignee (UserSimpleSerializer): Assigned user info (read-only, nested)
+        reviewer (UserSimpleSerializer): Reviewer user info (read-only, nested)
+        due_date (DateField): Task deadline (read-only in response)
+    
+    Model:
+        Task
+    
+    Used In:
+        PATCH /api/tasks/{id}/ response only
+    
+    Note:
+        Excludes board field to match endpoints.md specification.
+        Excludes comments_count since not in spec.
+    """
+    assignee = UserSimpleSerializer(read_only=True)
+    reviewer = UserSimpleSerializer(read_only=True)
+
+    class Meta:
+        model = Task
+        fields = [
+            "id",
+            "title",
+            "description",
+            "status",
+            "priority",
+            "assignee",
+            "reviewer",
+            "due_date",
+        ]
