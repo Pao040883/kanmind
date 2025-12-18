@@ -36,7 +36,15 @@ A Django REST Framework-based backend for the KanMind Kanban board application. 
 2. **Create and activate virtual environment**:
    ```bash
    python -m venv venv
-   source venv/Scripts/activate  # On Windows
+   
+   # Linux/Mac:
+   source venv/bin/activate
+   
+   # Windows PowerShell:
+   .\venv\Scripts\Activate.ps1
+   
+   # Windows CMD:
+   venv\Scripts\activate.bat
    ```
 
 3. **Install dependencies**:
