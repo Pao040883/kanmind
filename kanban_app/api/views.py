@@ -43,7 +43,6 @@ class BoardViewSet(ModelViewSet):
     List action filters to user's boards only.
     Delete restricted to board owner via get_permissions().
     """
-    permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete"]
 
     def get_serializer_class(self):
@@ -58,12 +57,10 @@ class BoardViewSet(ModelViewSet):
     def get_queryset(self):
         queryset = Board.objects.select_related('owner')
         
-        # For list action, filter to user's boards only
         if self.action == 'list':
             user = self.request.user
             queryset = queryset.filter(members=user) | queryset.filter(owner=user)
             queryset = queryset.prefetch_related('members', 'tasks').distinct()
-        # For retrieve/update/destroy, return all boards and let permissions handle access control
         elif self.action == 'retrieve':
             queryset = queryset.prefetch_related(
                 'members__profile',
@@ -72,6 +69,13 @@ class BoardViewSet(ModelViewSet):
             )
         
         return queryset
+
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsBoardOwner()]
+        elif self.action in ['update', 'partial_update', 'retrieve']:
+            return [IsAuthenticated(), IsBoardMember()]
+        return [IsAuthenticated()]
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
@@ -90,7 +94,7 @@ class BoardViewSet(ModelViewSet):
         serializer = self.get_serializer(board)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         board = self.get_object()
         serializer = self.get_serializer(instance=board, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -101,13 +105,6 @@ class BoardViewSet(ModelViewSet):
         board = self.get_object()
         board.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
-    def get_permissions(self):
-        if self.action == 'destroy':
-            return [IsAuthenticated(), IsBoardOwner()]
-        elif self.action in ['update', 'partial_update', 'retrieve']:
-            return [IsAuthenticated(), IsBoardMember()]
-        return [IsAuthenticated()]
 
 
 class TaskListAssignedView(APIView):
