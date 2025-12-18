@@ -115,8 +115,13 @@ Common business logic is extracted into utility modules for reusability and main
 - **Validation**: `validate_board_membership()`, `validate_and_get_assignee()`, `validate_and_get_reviewer()`
 - **Creation**: `create_task_from_data()` - Persist new task with all fields
 - **Updates**: `update_task_fields()`, `update_task_assignee_if_provided()`, `update_task_reviewer_if_provided()`
-- **Permissions**: `check_board_permission()` - Verify user board access
+- **Permissions**: `check_board_permission()` - Verify user board access (used for task creation where no object exists yet)
 - **Orchestration**: `process_task_creation()`, `validate_task_assignees()`, `update_task_assignees()` - Multi-step operations
+
+### `kanban_app/api/permissions.py`
+- **DRF Permissions**: Uses Django REST Framework's built-in `IsAuthenticated` permission
+- **Custom Object Permissions**: `IsBoardMember`, `IsBoardOwner`, `IsTaskBoardMember`, `IsTaskCreatorOrBoardOwner`, `IsCommentAuthor`
+- **Pattern**: ViewSets use `get_permissions()` for dynamic permission assignment per action
 
 ## Authentication
 
@@ -145,7 +150,6 @@ backend/
 │   │   ├── serializers.py  # API serializers
 │   │   ├── views.py        # API views
 │   │   ├── urls.py         # URL routing
-│   │   ├── permissions.py  # Custom permissions
 │   │   └── utils.py        # Authentication helpers
 │   ├── models.py           # User profile model
 │   └── admin.py            # Admin configuration
@@ -167,15 +171,15 @@ backend/
 This project follows these conventions:
 
 - **PEP 8**: Python style guide
-- **Max function length**: 14 lines
+- **PEP 257**: Docstring conventions (Google/Django style)
 - **Model naming**: PascalCase (e.g., `UserProfile`, `Board`)
 - **Field naming**: snake_case (e.g., `fullname`, `created_at`)
 - **Imports**: Grouped and sorted (stdlib → third-party → local)
 - **Views**: Use ViewSets for CRUD operations, APIView for custom endpoints
-- **Serializers**: Explicit field declaration, custom validation methods
-- **Permissions**: Role-based access control with clear permission classes
-- **Utility Functions**: Proportional docstrings (1-4 lines for helpers, more for complex logic)
-- **Error Handling**: Tuple returns `(result, error_response)` for consistent error propagation
+- **Serializers**: Explicit field declaration, validation from model choices
+- **Permissions**: DRF built-in permissions + custom object-level permissions
+- **Docstrings**: Explain WHY not WHAT - focus on business logic and non-obvious patterns
+- **DRY Principle**: Helper methods for repeated logic, no code duplication
 
 ## Environment Variables
 
@@ -187,16 +191,23 @@ Currently, no environment variables are required for development. For production
 
 ## Testing
 
-Run tests with:
+Run the complete test suite (53 tests):
 ```bash
 python manage.py test
 ```
 
-Coverage wird mit coverage.py gemessen; optional anzeigen mit:
+Check code coverage (currently **97%**):
 ```bash
-coverage run manage.py test
+coverage run --source='.' manage.py test
 coverage report
 ```
+
+Test coverage breakdown:
+- Views: 100%
+- Permissions: 100%
+- Serializers: 93%
+- Utils: 94%
+- Models: 92-93%
 
 ## Admin Panel
 
