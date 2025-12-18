@@ -1,10 +1,12 @@
-# 1. Third-party
+# 1. Standard library
+
+# 2. Third-party
 from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
-# 2. Local
+# 3. Local
 from auth_app.models import UserProfile
 from kanban_app.models import Board, Comment, Task
 

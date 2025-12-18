@@ -1,10 +1,8 @@
 # 1. Standard library
 
 # 2. Third-party
-from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
@@ -15,8 +13,6 @@ from kanban_app.api.permissions import (
     IsBoardMember,
     IsBoardOwner,
     IsCommentAuthor,
-    IsTaskBoardMember,
-    IsTaskCreatorOrBoardOwner,
 )
 from kanban_app.api.serializers import (
     BoardCreateSerializer,
@@ -32,7 +28,6 @@ from kanban_app.api.utils import (
     process_task_creation,
     update_task_assignees,
     update_task_fields,
-    validate_board_membership,
     validate_serializer,
 )
 from kanban_app.models import Board, Comment, Task

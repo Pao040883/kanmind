@@ -2,9 +2,7 @@
 
 # 2. Third-party
 from django.contrib.auth.models import User
-from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.response import Response
 
 # 3. Local
 from kanban_app.models import Board, Task

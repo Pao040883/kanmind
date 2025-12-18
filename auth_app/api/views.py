@@ -1,8 +1,6 @@
 # 1. Standard library
 
 # 2. Third-party
-from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
@@ -157,7 +155,8 @@ class EmailCheckView(APIView):
         }
     
     Error Responses:
-        400 Bad Request: Missing email parameter
+        400 Bad Request: Missing email parameter or invalid email format
+        401 Unauthorized: User must be authenticated
         404 Not Found: Email not registered
     
     Authentication:
@@ -174,11 +173,9 @@ class EmailCheckView(APIView):
     permission_classes = [IsAuthenticatedUser]
 
     def get(self, request):
-        email = request.query_params.get("email")
-        if not email:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({"error": "Email parameter required"})
+        serializer = UserCheckSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
         
-        user, profile = get_user_and_profile(email)
-        serializer = UserProfileSerializer(profile)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        user, profile = get_user_and_profile(serializer.validated_data["email"])
+        profile_serializer = UserProfileSerializer(profile)
+        return Response(profile_serializer.data, status=status.HTTP_200_OK)

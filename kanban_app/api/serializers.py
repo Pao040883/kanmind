@@ -1,9 +1,11 @@
-# 1. Third-party
+# 1. Standard library
+
+# 2. Third-party
+from django.contrib.auth.models import User
 from rest_framework import serializers
 
-# 2. Local
+# 3. Local
 from auth_app.models import UserProfile
-from django.contrib.auth.models import User
 from kanban_app.models import Board, Comment, Task
 
 

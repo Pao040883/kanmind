@@ -1,5 +1,4 @@
 # 1. Standard library
-import json
 
 # 2. Third-party
 from django.contrib.auth.models import User

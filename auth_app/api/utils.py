@@ -2,9 +2,7 @@
 
 # 2. Third-party
 from django.contrib.auth.models import User
-from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.response import Response
 
 # 3. Local
 from auth_app.models import UserProfile
