@@ -13,6 +13,8 @@ from kanban_app.api.permissions import (
     IsBoardMember,
     IsBoardOwner,
     IsCommentAuthor,
+    IsTaskBoardMember,
+    IsTaskCreatorOrBoardOwner,
 )
 from kanban_app.api.serializers import (
     BoardCreateSerializer,
@@ -140,10 +142,9 @@ class TaskViewSet(ModelViewSet):
     """
     Task CRUD operations with member validation.
     
-    Delete restricted to task creator or board owner via check_board_permission().
+    Delete restricted to task creator or board owner via IsTaskCreatorOrBoardOwner.
     Assignee/reviewer must be board members (validated in utils).
     """
-    permission_classes = [IsAuthenticated]
     serializer_class = TaskSerializer
     http_method_names = ["post", "patch", "delete"]
 
@@ -155,6 +156,13 @@ class TaskViewSet(ModelViewSet):
             'reviewer__profile',
             'created_by'
         ).prefetch_related('comments')
+
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsTaskCreatorOrBoardOwner()]
+        elif self.action == 'partial_update':
+            return [IsAuthenticated(), IsTaskBoardMember()]
+        return [IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -168,8 +176,7 @@ class TaskViewSet(ModelViewSet):
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
-        task = get_object_or_404(Task, id=kwargs.get("pk"))
-        check_board_permission(task.board, request.user)
+        task = self.get_object()
         
         serializer = self.get_serializer(task, data=request.data, partial=True)
         validate_serializer(serializer)
@@ -181,8 +188,7 @@ class TaskViewSet(ModelViewSet):
         return Response(output_serializer.data, status=status.HTTP_200_OK)
     
     def destroy(self, request, *args, **kwargs):
-        task = get_object_or_404(Task, id=kwargs.get("pk"))
-        check_board_permission(task.board, request.user, require_owner_or_creator=task.created_by)
+        task = self.get_object()
         task.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -191,14 +197,14 @@ class CommentListCreateView(APIView):
     """
     List and create comments for a task.
     
-    Requires board membership (owner or member) via check_board_permission().
+    Requires board membership (owner or member) via IsTaskBoardMember.
     Comments ordered chronologically for conversation flow.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTaskBoardMember]
 
     def get(self, request, task_id):
         task = get_object_or_404(Task.objects.select_related('board', 'board__owner').prefetch_related('board__members'), id=task_id)
-        check_board_permission(task.board, request.user)
+        self.check_object_permissions(request, task)
         
         comments = task.comments.select_related('author__profile').order_by("created_at")
         serializer = CommentSerializer(comments, many=True)
@@ -206,7 +212,7 @@ class CommentListCreateView(APIView):
 
     def post(self, request, task_id):
         task = get_object_or_404(Task.objects.select_related('board', 'board__owner').prefetch_related('board__members'), id=task_id)
-        check_board_permission(task.board, request.user)
+        self.check_object_permissions(request, task)
         
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
