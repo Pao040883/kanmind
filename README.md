@@ -159,7 +159,6 @@ backend/
 │   ├── models.py           # Board, Task, Comment models
 │   └── admin.py            # Admin configuration
 ├── manage.py               # Django management script
-├── db.sqlite3              # SQLite database (created after migration)
 └── requirements.txt        # Python dependencies
 ```
 
