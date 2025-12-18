@@ -14,18 +14,12 @@ class NestedUserSerializer(serializers.Serializer):
     """
     User serializer for nested contexts (assignee, reviewer, members).
     
-    Uses SerializerMethodField to extract user data with profile fallback.
+    Uses SerializerMethodField for fullname with profile fallback.
     Returns username if UserProfile doesn't exist.
     """
-    id = serializers.SerializerMethodField()
-    email = serializers.SerializerMethodField()
+    id = serializers.IntegerField(read_only=True)
+    email = serializers.EmailField(read_only=True)
     fullname = serializers.SerializerMethodField()
-
-    def get_id(self, obj):
-        return obj.id
-
-    def get_email(self, obj):
-        return obj.email
 
     def get_fullname(self, obj):
         profile = getattr(obj, "profile", None)
@@ -113,13 +107,13 @@ class TaskSerializer(serializers.ModelSerializer):
         return obj.comments.count()
 
     def validate_status(self, value):
-        valid_statuses = ["to-do", "in-progress", "review", "done"]
+        valid_statuses = [choice[0] for choice in Task.STATUS_CHOICES]
         if value not in valid_statuses:
             raise serializers.ValidationError(f"Status must be one of {valid_statuses}")
         return value
 
     def validate_priority(self, value):
-        valid_priorities = ["low", "medium", "high"]
+        valid_priorities = [choice[0] for choice in Task.PRIORITY_CHOICES]
         if value not in valid_priorities:
             raise serializers.ValidationError(f"Priority must be one of {valid_priorities}")
         return value
@@ -176,22 +170,19 @@ class BoardUpdateSerializer(serializers.Serializer):
     )
     members_data = serializers.SerializerMethodField()
 
-    def get_owner_data(self, obj):
+    def _serialize_user(self, user):
+        """Helper method to serialize user data with profile fallback."""
         return {
-            'id': obj.owner.id,
-            'email': obj.owner.email,
-            'fullname': obj.owner.profile.fullname if hasattr(obj.owner, 'profile') else obj.owner.username
+            'id': user.id,
+            'email': user.email,
+            'fullname': user.profile.fullname if hasattr(user, 'profile') else user.username
         }
+
+    def get_owner_data(self, obj):
+        return self._serialize_user(obj.owner)
     
     def get_members_data(self, obj):
-        members_list = []
-        for member in obj.members.all():
-            members_list.append({
-                'id': member.id,
-                'email': member.email,
-                'fullname': member.profile.fullname if hasattr(member, 'profile') else member.username
-            })
-        return members_list
+        return [self._serialize_user(member) for member in obj.members.all()]
 
     def validate_members(self, value):
         """

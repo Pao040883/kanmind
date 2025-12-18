@@ -3,12 +3,11 @@
 # 2. Third-party
 from rest_framework import status
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 # 3. Local
-from auth_app.api.permissions import IsAuthenticatedUser
 from auth_app.api.utils import authenticate_and_get_token, create_token_response, get_user_and_profile
 from auth_app.api.serializers import (
     UserCheckSerializer,
@@ -71,7 +70,7 @@ class EmailCheckView(APIView):
     Checks if email exists and returns profile data for confirmation.
     Requires authentication to prevent email enumeration attacks.
     """
-    permission_classes = [IsAuthenticatedUser]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         serializer = UserCheckSerializer(data=request.query_params)

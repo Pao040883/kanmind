@@ -9,13 +9,13 @@ from rest_framework.viewsets import ModelViewSet
 
 # 3. Local
 from kanban_app.api.permissions import (
-    IsAuthenticated,
     IsBoardMember,
     IsBoardOwner,
     IsCommentAuthor,
     IsTaskBoardMember,
     IsTaskCreatorOrBoardOwner,
 )
+from rest_framework.permissions import IsAuthenticated
 from kanban_app.api.serializers import (
     BoardCreateSerializer,
     BoardDetailSerializer,

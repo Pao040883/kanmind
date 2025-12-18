@@ -1,7 +1,4 @@
-# 1. Standard library
-from datetime import datetime
-
-# 2. Third-party
+# 1. Third-party
 from django.contrib.auth.models import User
 from django.db import models
 
