@@ -9,7 +9,12 @@ from auth_app.models import UserProfile
 
 
 def create_token_response(token, user, profile):
-    """Build authentication response dict with token and user info."""
+    """
+    Build authentication response dict with token and user info.
+    
+    Returns standard format used across login and registration endpoints
+    to ensure consistent client-side handling.
+    """
     return {
         "token": token.key,
         "user_id": user.id,
@@ -22,7 +27,8 @@ def get_user_and_profile(email):
     """
     Fetch user and profile by email.
     
-    Returns (user, profile). Raises NotFound if user doesn't exist.
+    Raises NotFound with "Email not found" message if user doesn't exist.
+    Guarantees both User and UserProfile exist on success.
     """
     try:
         user = User.objects.get(email=email)
@@ -36,7 +42,9 @@ def authenticate_and_get_token(email, password):
     """
     Authenticate user and return (token, profile).
     
-    Raises ValidationError on invalid credentials. Email used as Django auth username.
+    Uses email as username for Django authenticate() since user model
+    stores email in username field. Creates token if doesn't exist.
+    Raises ValidationError with "Invalid credentials" on auth failure.
     """
     from django.contrib.auth import authenticate
     from rest_framework.authtoken.models import Token

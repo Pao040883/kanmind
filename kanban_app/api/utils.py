@@ -9,16 +9,21 @@ from kanban_app.models import Board, Task
 
 
 def validate_board_membership(board, user):
-    """Check if user is board member or owner."""
+    """
+    Check if user has access to board.
+    
+    Returns True if user is board owner OR in members list.
+    Used for read/update operations where both owners and members have access.
+    """
     return user in board.members.all() or board.owner == user
 
 
 def validate_and_get_assignee(assignee_id, board):
     """
-    Validate assignee exists and is board member. Return assignee or None.
+    Validate assignee exists and is board member.
     
-    Allows optional assignment (returns None if assignee_id not provided).
-    Raises ValidationError if validation fails.
+    Returns None if assignee_id not provided (allows optional assignment).
+    Raises ValidationError if assignee doesn't exist or isn't board member.
     """
     if not assignee_id:
         return None
@@ -34,10 +39,10 @@ def validate_and_get_assignee(assignee_id, board):
 
 def validate_and_get_reviewer(reviewer_id, board):
     """
-    Validate reviewer exists and is board member. Return reviewer or None.
+    Validate reviewer exists and is board member.
     
-    Allows optional assignment (returns None if reviewer_id not provided).
-    Raises ValidationError if validation fails.
+    Returns None if reviewer_id not provided (allows optional assignment).
+    Raises ValidationError if reviewer doesn't exist or isn't board member.
     """
     if not reviewer_id:
         return None
@@ -52,7 +57,12 @@ def validate_and_get_reviewer(reviewer_id, board):
 
 
 def create_task_from_data(board, validated_data, assignee, reviewer, created_by):
-    """Create and return Task instance from validated data and relationships."""
+    """
+    Create and return Task instance from validated data and relationships.
+    
+    Sets default values for status (to-do) and priority (medium) if not provided.
+    Tracks created_by for deletion permission checks.
+    """
     return Task.objects.create(
         board=board,
         title=validated_data["title"],
@@ -67,7 +77,12 @@ def create_task_from_data(board, validated_data, assignee, reviewer, created_by)
 
 
 def update_task_fields(task, validated_data):
-    """Update Task fields from validated data and persist to database."""
+    """
+    Update Task fields from validated data and persist to database.
+    
+    Uses get() with current value fallback to preserve unchanged fields.
+    Handles all standard task fields except assignee/reviewer (separate logic).
+    """
     task.title = validated_data.get("title", task.title)
     task.description = validated_data.get("description", task.description)
     task.status = validated_data.get("status", task.status)
@@ -77,7 +92,12 @@ def update_task_fields(task, validated_data):
 
 
 def get_board_or_error(board_id):
-    """Fetch Board by ID. Raises NotFound if board doesn't exist."""
+    """
+    Fetch Board by ID.
+    
+    Raises NotFound with "Board not found" message if board doesn't exist.
+    Used for task creation to validate board_id before proceeding.
+    """
     try:
         return Board.objects.get(id=board_id)
     except Board.DoesNotExist:
@@ -96,31 +116,46 @@ def validate_task_assignees(request_data, board):
 
 
 def update_task_assignee_if_provided(task, request_data, board):
-    """Update task.assignee if 'assignee_id' in request_data. Raises ValidationError on failure."""
+    """
+    Update task.assignee if 'assignee_id' in request_data.
+    
+    Checks for key existence (not just value) to allow setting assignee to None.
+    Validates assignee is board member. Raises ValidationError on failure.
+    """
     if "assignee_id" in request_data:
         assignee = validate_and_get_assignee(request_data.get("assignee_id"), board)
         task.assignee = assignee
 
 
 def update_task_reviewer_if_provided(task, request_data, board):
-    """Update task.reviewer if 'reviewer_id' in request_data. Raises ValidationError on failure."""
+    """
+    Update task.reviewer if 'reviewer_id' in request_data.
+    
+    Checks for key existence (not just value) to allow setting reviewer to None.
+    Validates reviewer is board member. Raises ValidationError on failure.
+    """
     if "reviewer_id" in request_data:
         reviewer = validate_and_get_reviewer(request_data.get("reviewer_id"), board)
         task.reviewer = reviewer
 
 
 def validate_serializer(serializer):
-    """Validate serializer. Raises ValidationError if invalid."""
+    """
+    Validate serializer and raise exception on failure.
+    
+    Centralizes validation logic to avoid repeating is_valid() checks.
+    Automatically includes serializer.errors in ValidationError.
+    """
     if not serializer.is_valid():
         raise ValidationError(serializer.errors)
 
 
 def check_board_permission(board, user, require_owner_or_creator=None):
     """
-    Check if user has board access. Raises PermissionDenied if not.
+    Check board access permission.
     
-    If require_owner_or_creator is provided (a User), requires user to be either
-    board owner OR the creator.
+    If require_owner_or_creator is provided, requires user to be either
+    board owner OR the specified creator (used for task deletion).
     """
     if require_owner_or_creator:
         if user != board.owner and user != require_owner_or_creator:
@@ -131,9 +166,10 @@ def check_board_permission(board, user, require_owner_or_creator=None):
 
 def process_task_creation(board, validated_data, request_data, user):
     """
-    Validate and create Task with assignee/reviewer. Return task.
+    Validate and create Task with assignee/reviewer.
     
-    Raises ValidationError if validation fails.
+    Validates both assignee and reviewer are board members before creation.
+    Combines validation and creation in single transaction.
     """
     assignee, reviewer = validate_task_assignees(request_data, board)
     return create_task_from_data(board, validated_data, assignee, reviewer, user)
@@ -141,9 +177,10 @@ def process_task_creation(board, validated_data, request_data, user):
 
 def update_task_assignees(task, request_data):
     """
-    Update task.assignee and task.reviewer if provided.
+    Update task assignee/reviewer if provided.
     
-    Does NOT save task - caller must save. Raises ValidationError on failure.
+    Does NOT save task - caller is responsible for saving.
+    Allows batching assignee/reviewer updates with field updates.
     """
     update_task_assignee_if_provided(task, request_data, task.board)
     update_task_reviewer_if_provided(task, request_data, task.board)

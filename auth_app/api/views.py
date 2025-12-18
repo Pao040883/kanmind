@@ -21,47 +21,10 @@ from auth_app.models import UserProfile
 
 class RegistrationView(APIView):
     """
-    User registration and account creation endpoint.
+    User registration endpoint.
     
-    POST /api/registration/
-    
-    Creates a new user account with an associated profile.
-    Returns authentication token and user information upon successful registration.
-    
-    Request Body (JSON):
-        {
-            "fullname": "John Doe",
-            "email": "john@example.com",
-            "password": "securepassword123",
-            "repeated_password": "securepassword123"
-        }
-    
-    Success Response (201 Created):
-        {
-            "token": "abc123...",
-            "user_id": 5,
-            "email": "john@example.com",
-            "fullname": "John Doe"
-        }
-    
-    Error Responses:
-        400 Bad Request: Validation errors (mismatched passwords, duplicate email, etc.)
-    
-    Authentication:
-        Disabled (AllowAny) - No authentication required for registration
-    
-    Validation:
-        - Password and repeated_password must match
-        - Email must be unique (no existing user with same email)
-        - All fields (fullname, email, password, repeated_password) are required
-    
-    Side Effects:
-        - Creates a new Django User with email as username
-        - Creates associated UserProfile with the provided fullname
-        - Generates an authentication Token for the new user
-    
-    Permissions:
-        AllowAny - Any unauthenticated user can register
+    Creates User, UserProfile, and Token in single transaction.
+    Disables token auth to prevent 401 when stale tokens are sent.
     """
     permission_classes = [AllowAny]
     authentication_classes = []  # Disable token auth to avoid 401 when stale token is sent
@@ -79,44 +42,10 @@ class RegistrationView(APIView):
 
 class LoginView(APIView):
     """
-    User login and token authentication endpoint.
+    User login endpoint.
     
-    POST /api/login/
-    
-    Authenticates a user and returns an authentication token.
-    Uses Django's authenticate() function to verify credentials.
-    
-    Request Body (JSON):
-        {
-            "email": "john@example.com",
-            "password": "securepassword123"
-        }
-    
-    Success Response (200 OK):
-        {
-            "token": "abc123...",
-            "user_id": 5,
-            "email": "john@example.com",
-            "fullname": "John Doe"
-        }
-    
-    Error Responses:
-        400 Bad Request: Invalid credentials or validation errors
-    
-    Authentication:
-        Disabled (AllowAny) - No authentication required for login
-    
-    Validation:
-        - Email format validation by EmailField
-        - Actual credential verification via Django authenticate()
-    
-    Token Generation:
-        - Uses rest_framework.authtoken.Token
-        - Gets existing token or creates new one if it doesn't exist
-        - Same token returned on subsequent logins
-    
-    Permissions:
-        AllowAny - Any unauthenticated user can login
+    Authenticates via email/password and returns existing or new token.
+    Disables token auth to prevent 401 when stale tokens are sent.
     """
     permission_classes = [AllowAny]
     authentication_classes = []  # Disable token auth to avoid 401 when stale token is sent
@@ -137,38 +66,10 @@ class LoginView(APIView):
 
 class EmailCheckView(APIView):
     """
-    Email existence check and user lookup endpoint.
+    Email validation endpoint for adding board members.
     
-    GET /api/email-check/?email=user@example.com
-    
-    Checks if an email address is registered and returns user information if found.
-    Requires authentication to use this endpoint.
-    
-    Query Parameters:
-        email (string, required): Email address to check
-    
-    Success Response (200 OK) - Email found:
-        {
-            "id": 5,
-            "email": "john@example.com",
-            "fullname": "John Doe"
-        }
-    
-    Error Responses:
-        400 Bad Request: Missing email parameter or invalid email format
-        401 Unauthorized: User must be authenticated
-        404 Not Found: Email not registered
-    
-    Authentication:
-        Required (IsAuthenticatedUser) - Only authenticated users can check emails
-    
-    Use Cases:
-        - Email availability checking during registration flow
-        - User lookup by email
-        - Verifying user existence in collaborative features
-    
-    Permissions:
-        IsAuthenticatedUser - Must be logged in
+    Checks if email exists and returns profile data for confirmation.
+    Requires authentication to prevent email enumeration attacks.
     """
     permission_classes = [IsAuthenticatedUser]
 

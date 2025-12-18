@@ -9,8 +9,6 @@ router = DefaultRouter()
 router.register(r"boards", views.BoardViewSet, basename="board")
 router.register(r"tasks", views.TaskViewSet, basename="task")
 
-app_name = "kanban_api"
-
 urlpatterns = [
     path("tasks/assigned-to-me/", views.TaskListAssignedView.as_view(), name="tasks_assigned"),
     path("tasks/reviewing/", views.TaskListReviewingView.as_view(), name="tasks_reviewing"),

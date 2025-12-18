@@ -10,34 +10,12 @@ from auth_app.models import UserProfile
 from kanban_app.models import Board, Comment, Task
 
 
-class UserSimpleSerializer(serializers.Serializer):
+class NestedUserSerializer(serializers.Serializer):
     """
-    Lightweight serializer for user information in nested responses.
+    User serializer for nested contexts (assignee, reviewer, members).
     
-    Used to display user details in nested contexts (e.g., within board/task responses)
-    without exposing sensitive information or unnecessary data.
-    
-    Fields:
-        id (IntegerField): User's ID
-        email (EmailField): User's email address
-        fullname (CharField): User's full name (extracted from UserProfile)
-    
-    Data Sources:
-        - id: Django User.id
-        - email: Django User.email
-        - fullname: UserProfile.fullname (gracefully falls back to User.username if profile missing)
-    
-    Fallback Behavior:
-        If UserProfile is not found, uses User.username as fullname (fallback).
-    
-    Used In:
-        Nested in BoardDetailSerializer (members list)
-        Nested in TaskSerializer (assignee, reviewer fields)
-        Nested in BoardUpdateSerializer (members_data)
-    
-    Note:
-        This is a lightweight alternative to full UserProfileSerializer.
-        Used to keep response payloads smaller in nested structures.
+    Uses SerializerMethodField to extract user data with profile fallback.
+    Returns username if UserProfile doesn't exist.
     """
     id = serializers.SerializerMethodField()
     email = serializers.SerializerMethodField()
@@ -56,36 +34,10 @@ class UserSimpleSerializer(serializers.Serializer):
 
 class BoardListSerializer(serializers.ModelSerializer):
     """
-    Serializer for board list view with statistics.
+    Board overview with computed statistics.
     
-    Displays a summary of boards with key metrics and counts.
-    Used when listing all boards the user is a member of or owns.
-    
-    Fields:
-        id (IntegerField): Board ID (read-only)
-        title (CharField): Board title/name (read-only)
-        member_count (SerializerMethodField): Number of board members
-        ticket_count (SerializerMethodField): Total number of tasks
-        tasks_to_do_count (SerializerMethodField): Number of tasks with status "to-do"
-        tasks_high_prio_count (SerializerMethodField): Number of high-priority tasks
-        owner_id (IntegerField): ID of the board owner (sourced from owner.id)
-    
-    Computed Fields (SerializerMethodField):
-        - member_count: Count of board members (board.members.count())
-        - ticket_count: Total task count (board.tasks.count())
-        - tasks_to_do_count: Tasks in "to-do" status
-        - tasks_high_prio_count: Tasks with "high" priority
-    
-    Model:
-        Board
-    
-    Used In:
-        GET /api/boards/ (list user's boards)
-        POST /api/boards/ (create response includes list serializer format)
-    
-    Note:
-        Provides quick overview statistics without loading full task details.
-        Optimized for list views where full task data is not needed.
+    Calculates member count, total tasks, tasks in to-do status, and high-priority tasks.
+    Optimized for list views without loading full task details.
     """
     member_count = serializers.SerializerMethodField()
     ticket_count = serializers.SerializerMethodField()
@@ -119,33 +71,6 @@ class BoardListSerializer(serializers.ModelSerializer):
 
 
 class CommentSerializer(serializers.ModelSerializer):
-    """
-    Serializer for task comments with author information.
-    
-    Displays comment details including the author's full name, content, and creation timestamp.
-    Ordered chronologically to show comment threads in sequence.
-    
-    Fields:
-        id (IntegerField): Comment ID (read-only)
-        created_at (DateTimeField): Timestamp when comment was created (read-only)
-        author (CharField): Author's full name (read-only, sourced from author.userprofile.fullname)
-        content (TextField): Comment text content (read-write)
-    
-    Model:
-        Comment
-    
-    Data Sources:
-        - author field uses source="author.profile.fullname" to extract the full name
-    
-    Used In:
-        GET /api/tasks/{id}/comments/ (list comments on a task)
-        POST /api/tasks/{id}/comments/ (create/response)
-        Nested in task responses
-    
-    Note:
-        Comments are ordered by created_at (earliest first) in the default ordering.
-        The author field is read-only and extracted from the related User/UserProfile.
-    """
     author = serializers.CharField(source="author.profile.fullname", read_only=True)
 
     class Meta:
@@ -155,44 +80,13 @@ class CommentSerializer(serializers.ModelSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     """
-    Serializer for task detail view with full information.
+    Full task serializer with nested user data and validation.
     
-    Provides complete task data including nested user information, comments count,
-    and supports both read and write operations with validation.
-    
-    Fields:
-        id (IntegerField): Task ID (read-only)
-        board (IntegerField): Board ID (read-only, cannot be changed after creation)
-        title (CharField): Task title (required, read-write)
-        description (TextField): Task description (optional, read-write)
-        status (CharField): Task status - must be one of: "to-do", "in-progress", "review", "done" (read-write)
-        priority (CharField): Task priority - must be one of: "low", "medium", "high" (read-write)
-        assignee (UserSimpleSerializer): Assigned user info (read-only, nested)
-        assignee_id (IntegerField): ID of assigned user (write-only, for setting assignee)
-        reviewer (UserSimpleSerializer): Reviewer user info (read-only, nested)
-        reviewer_id (IntegerField): ID of reviewer (write-only, for setting reviewer)
-        due_date (DateField): Task deadline (optional, read-write)
-        comments_count (SerializerMethodField): Number of comments on task
-    
-    Validation:
-        status: Must be one of "to-do", "in-progress", "review", "done"
-        priority: Must be one of "low", "medium", "high"
-    
-    Model:
-        Task
-    
-    Used In:
-        GET /api/tasks/{id}/ (retrieve single task)
-        PATCH /api/tasks/{id}/ (update task)
-        POST /api/tasks/ (create task)
-    
-    Note:
-        Assignee/Reviewer fields use separate write-only ID fields (assignee_id, reviewer_id)
-        for creation/updates while displaying full user info on read.
-        Board field is read-only to prevent moving tasks between boards.
+    Uses separate write-only ID fields (assignee_id, reviewer_id) for updates
+    while displaying full nested user info on read.
     """
-    assignee = UserSimpleSerializer(read_only=True)
-    reviewer = UserSimpleSerializer(read_only=True)
+    assignee = NestedUserSerializer(read_only=True)
+    reviewer = NestedUserSerializer(read_only=True)
     comments_count = serializers.SerializerMethodField()
     assignee_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     reviewer_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
@@ -232,40 +126,9 @@ class TaskSerializer(serializers.ModelSerializer):
 
 
 class TaskNestedSerializer(serializers.ModelSerializer):
-    """
-    Nested serializer for tasks within board detail responses.
-    
-    Lightweight version of TaskSerializer used when tasks are nested inside board details.
-    Excludes the board field to avoid redundant circular references.
-    
-    Fields:
-        id (IntegerField): Task ID (read-only)
-        title (CharField): Task title (read-only)
-        description (TextField): Task description (read-only)
-        status (CharField): Task status (read-only)
-        priority (CharField): Task priority (read-only)
-        assignee (UserSimpleSerializer): Assigned user info (read-only, nested)
-        reviewer (UserSimpleSerializer): Reviewer user info (read-only, nested)
-        due_date (DateField): Task deadline (read-only)
-        comments_count (SerializerMethodField): Number of comments on task
-    
-    Model:
-        Task
-    
-    Differences from TaskSerializer:
-        - Excludes board field (implicit from parent board)
-        - All fields read-only (not used for creation/updates)
-        - Uses UserSimpleSerializer for nested user data
-    
-    Used In:
-        Nested in BoardDetailSerializer (tasks list within board detail)
-    
-    Note:
-        This is a read-only view designed specifically for board detail responses
-        where the board context is already clear.
-    """
-    assignee = UserSimpleSerializer(read_only=True)
-    reviewer = UserSimpleSerializer(read_only=True)
+    """Excludes board field to avoid redundancy when nested in BoardDetail."""
+    assignee = NestedUserSerializer(read_only=True)
+    reviewer = NestedUserSerializer(read_only=True)
     comments_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -287,35 +150,7 @@ class TaskNestedSerializer(serializers.ModelSerializer):
 
 
 class BoardDetailSerializer(serializers.ModelSerializer):
-    """
-    Serializer for board detail view with full board information.
-    
-    Provides comprehensive board data including all members and all tasks
-    with their full details. Used for the board detail endpoint.
-    
-    Fields:
-        id (IntegerField): Board ID (read-only)
-        title (CharField): Board title/name (read-only)
-        owner_id (IntegerField): ID of board owner (read-only, sourced from owner.id)
-        members (UserSimpleSerializer): List of board members (read-only, nested, many=True)
-        tasks (TaskNestedSerializer): List of board tasks (read-only, nested, many=True)
-    
-    Model:
-        Board
-    
-    Nested Serializers:
-        members: Uses UserSimpleSerializer for each member
-        tasks: Uses TaskNestedSerializer (without board field to avoid redundancy)
-    
-    Used In:
-        GET /api/boards/{id}/ (retrieve single board with all details)
-    
-    Note:
-        Provides complete board context with all members and tasks.
-        Tasks use TaskNestedSerializer which excludes board field (redundant).
-        This is a read-only view for data retrieval only.
-    """
-    members = UserSimpleSerializer(many=True, read_only=True)
+    members = NestedUserSerializer(many=True, read_only=True)
     tasks = TaskNestedSerializer(many=True, read_only=True)
     owner_id = serializers.IntegerField(source="owner.id", read_only=True)
 
@@ -326,27 +161,10 @@ class BoardDetailSerializer(serializers.ModelSerializer):
 
 class BoardUpdateSerializer(serializers.Serializer):
     """
-    Serializer for updating board information.
+    Board update with member validation.
     
-    Uses Serializer (not ModelSerializer) to avoid conflicts with ManyToMany field handling.
-    Manually handles all fields to match endpoints.md specification.
-    
-    Fields:
-        id (IntegerField): Board ID (read-only)
-        title (CharField): Board title (read-write, can update)
-        owner_data (dict): Owner information (read-only, nested)
-        members (list): Member IDs for update (write-only)
-        members_data (list): Member information (read-only, nested)
-    
-    Used In:
-        PATCH /api/boards/{id}/ (update board title and/or members)
-    
-    Update Behavior:
-        Updates board.title if provided
-        Replaces board.members if provided (uses set() to replace entire membership)
-    
-    Note:
-        Not using ModelSerializer to avoid ManyToMany field conflicts.
+    Uses Serializer (not ModelSerializer) to avoid ManyToMany field conflicts.
+    Validates that members being removed are not assigned to tasks.
     """
     id = serializers.IntegerField(read_only=True)
     title = serializers.CharField(required=False, allow_blank=False, max_length=255)
@@ -428,30 +246,6 @@ class BoardUpdateSerializer(serializers.Serializer):
 
 
 class BoardCreateSerializer(serializers.ModelSerializer):
-    """
-    Serializer for creating a new board.
-    
-    Used when creating a board. The current user automatically becomes the owner.
-    Optionally accepts initial members list.
-    
-    Fields:
-        title (CharField): Board title/name (required)
-        members (PrimaryKeyRelatedField): User IDs to add as initial members (optional, many=True)
-    
-    Model:
-        Board
-    
-    Create Behavior:
-        Owner is automatically set to the current authenticated user (passed from view).
-        Members are set from the provided list.
-    
-    Used In:
-        POST /api/boards/ (create a new board)
-    
-    Note:
-        Does not include owner field - it's automatically set via serializer.save(owner=user).
-        Members are optional for initial creation; can be added later.
-    """
     members = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), many=True, required=False
     )
@@ -468,34 +262,8 @@ class BoardCreateSerializer(serializers.ModelSerializer):
 
 
 class TaskUpdateSerializer(serializers.ModelSerializer):
-    """
-    Serializer specifically for task PATCH responses.
-    
-    According to endpoints.md, PATCH /api/tasks/{id}/ should NOT include board field.
-    This is different from POST /api/tasks/ and GET responses which include board.
-    
-    Fields:
-        id (IntegerField): Task ID (read-only)
-        title (CharField): Task title (read-only in response)
-        description (TextField): Task description (read-only in response)
-        status (CharField): Task status (read-only in response)
-        priority (CharField): Task priority (read-only in response)
-        assignee (UserSimpleSerializer): Assigned user info (read-only, nested)
-        reviewer (UserSimpleSerializer): Reviewer user info (read-only, nested)
-        due_date (DateField): Task deadline (read-only in response)
-    
-    Model:
-        Task
-    
-    Used In:
-        PATCH /api/tasks/{id}/ response only
-    
-    Note:
-        Excludes board field to match endpoints.md specification.
-        Excludes comments_count since not in spec.
-    """
-    assignee = UserSimpleSerializer(read_only=True)
-    reviewer = UserSimpleSerializer(read_only=True)
+    assignee = NestedUserSerializer(read_only=True)
+    reviewer = NestedUserSerializer(read_only=True)
 
     class Meta:
         model = Task
